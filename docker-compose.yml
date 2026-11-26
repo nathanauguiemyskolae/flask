@@ -1,0 +1,46 @@
+# Pile de développement : gunicorn + Flask (rechargement à chaud). Aucun Python sur l'hôte.
+# Pas de base de données : les tâches sont gardées en mémoire (voir app/store.py).
+name: todo-flask
+
+services:
+  # Génère une fois la paire de clés RSA des JWT (volume jwt-keys), puis s'arrête
+  keys:
+    image: alpine:3.20
+    command: ["sh", "/generate-keys.sh"]
+    volumes:
+      - ./docker/generate-keys.sh:/generate-keys.sh:ro
+      - jwt-keys:/keys
+
+  api:
+    build:
+      context: .
+      target: dev
+      args:
+        UID: "${UID:-1000}"
+    env_file: .env
+    environment:
+      JWT_PUBLIC_KEY_PATH: /keys/publicKey.pem
+      JWT_PRIVATE_KEY_PATH: /keys/privateKey.pem
+    ports:
+      - "127.0.0.1:8080:8080"              # accessible depuis votre machine uniquement
+    volumes:
+      - ./:/app                            # le code de l'hôte, rechargé à chaque modification
+      - jwt-keys:/keys:ro
+    depends_on:
+      keys:
+        condition: service_completed_successfully
+
+  # Exécution des tests : docker compose run --rm tests
+  tests:
+    build:
+      context: .
+      target: dev
+      args:
+        UID: "${UID:-1000}"
+    profiles: ["tools"]
+    command: ["pytest"]
+    volumes:
+      - ./:/app
+
+volumes:
+  jwt-keys:

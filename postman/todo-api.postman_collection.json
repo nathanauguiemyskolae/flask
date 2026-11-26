@@ -1,0 +1,178 @@
+{
+  "info": {
+    "name": "Todo API (TP 3)",
+    "description": "Collection du TP 3. Importer cette collection et l'environnement todo-local, renseigner admin_password en valeur courante (type secret), puis exécuter les dossiers dans l'ordre avec le Runner.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] },
+  "variable": [
+    { "key": "token", "value": "" },
+    { "key": "todo_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Socle : santé et authentification",
+      "item": [
+        {
+          "name": "Santé (route publique)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{base_url}}/health"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 sans jeton', () => pm.response.to.have.status(200));",
+            "pm.test('service opérationnel', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+          ] } }]
+        },
+        {
+          "name": "Obtenir un jeton (login admin)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"username\": \"{{admin_username}}\", \"password\": \"{{admin_password}}\" }" },
+            "url": "{{base_url}}/auth/login"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 et jeton Bearer', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().token_type).to.eql('Bearer');",
+            "});",
+            "// Le jeton est rangé dans une variable : les requêtes suivantes l'héritent de la collection",
+            "pm.collectionVariables.set('token', pm.response.json().token);"
+          ] } }]
+        },
+        {
+          "name": "Route protégée avec le jeton",
+          "request": { "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/me" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 et identité lue dans le jeton', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().data.username).to.eql(pm.environment.get('admin_username'));",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Route protégée sans jeton (401)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{base_url}}/me"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('401 et en-tête WWW-Authenticate', () => {",
+            "  pm.response.to.have.status(401);",
+            "  pm.response.to.have.header('WWW-Authenticate');",
+            "});"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Todos",
+      "item": [
+        {
+          "name": "Créer une tâche",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"title\": \"Sauvegarder la base {{$timestamp}}\" }" },
+            "url": "{{base_url}}/todos"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('201 et en-tête Location', () => {",
+            "  pm.response.to.have.status(201);",
+            "  pm.response.to.have.header('Location');",
+            "});",
+            "pm.test('tâche non terminée, identifiant entier', () => {",
+            "  const todo = pm.response.json().data;",
+            "  pm.expect(todo.done).to.eql(false);",
+            "  pm.expect(todo.id).to.be.a('number');",
+            "});",
+            "pm.test('conforme au schéma Todo', () => pm.response.to.have.jsonSchema({",
+            "  type: 'object', required: ['data'],",
+            "  properties: { data: { type: 'object', required: ['id', 'title', 'done', 'created_at'],",
+            "    properties: { id: { type: 'integer' }, title: { type: 'string' }, done: { type: 'boolean' }, created_at: { type: 'string' } } } }",
+            "}));",
+            "pm.collectionVariables.set('todo_id', pm.response.json().data.id);"
+          ] } }]
+        },
+        {
+          "name": "Lister les tâches",
+          "request": { "auth": { "type": "noauth" }, "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/todos" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 et la tâche créée est dans la liste', () => {",
+            "  pm.response.to.have.status(200);",
+            "  const ids = pm.response.json().data.map(t => t.id);",
+            "  pm.expect(ids).to.include(Number(pm.collectionVariables.get('todo_id')));",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Lire une tâche",
+          "request": { "auth": { "type": "noauth" }, "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/todos/{{todo_id}}" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 et bonne tâche', () => {",
+            "  pm.response.to.have.status(200);",
+            "  pm.expect(pm.response.json().data.id).to.eql(Number(pm.collectionVariables.get('todo_id')));",
+            "});"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Cas d'erreur",
+      "item": [
+        {
+          "name": "Titre manquant (422)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ }" },
+            "url": "{{base_url}}/todos"
+          },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('422 avec le détail du champ title', () => {",
+            "  pm.response.to.have.status(422);",
+            "  pm.expect(pm.response.json().errors).to.have.property('title');",
+            "});"
+          ] } }]
+        },
+        {
+          "name": "Titre trop long (422)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "Accept", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{ \"title\": \"{{long_title}}\" }" },
+            "url": "{{base_url}}/todos"
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// 101 caractères : une de plus que la limite du contrat",
+              "pm.collectionVariables.set('long_title', 'x'.repeat(101));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Tâche inconnue (404)",
+          "request": { "auth": { "type": "noauth" }, "method": "GET", "header": [{ "key": "Accept", "value": "application/json" }], "url": "{{base_url}}/todos/999999" },
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('404 avec un message JSON', () => {",
+            "  pm.response.to.have.status(404);",
+            "  pm.expect(pm.response.json()).to.have.property('message');",
+            "});"
+          ] } }]
+        }
+      ]
+    }
+  ]
+}
